@@ -100,8 +100,9 @@ main :: proc() {
                 }
             }
 
-            tile_draw_color := tile.revealed ? rl.RED : tile.color
+            tile_draw_color := tile.revealed ? bg_color : tile.color
             rl.DrawRectangleRounded(shrink_rect(tile.rect, 2), 0.3, 4, tile_draw_color)
+
             if !tile.has_mine && tile.revealed && tile.adjacent_mines > 0 {
                 rl.DrawTextEx(font_bold, rl.TextFormat("%d", tile.adjacent_mines), rl.Vector2{tile.rect.x+ TILE_SIZE / 4, tile.rect.y + TILE_SIZE / 4}, 24, 0, get_danger_color(tile))
             }
@@ -114,8 +115,10 @@ main :: proc() {
                 rl.DrawTexture(flag_sprite, i32(tile.rect.x), i32(tile.rect.y), OFF_WHITE)
             }
         }
-
-        rl.DrawTextEx(font_bold, rl.TextFormat("Need to clear: %d", mine_field.need_clearing), rl.Vector2{1,1}, 24, 0, OFF_WHITE)
+        
+        if game_state == .PLAYING {
+            rl.DrawTextEx(font_bold, rl.TextFormat("Need to clear: %d", mine_field.need_clearing), rl.Vector2{1,1}, 24, 0, OFF_WHITE)
+        }
 
         rl.EndDrawing()
     }

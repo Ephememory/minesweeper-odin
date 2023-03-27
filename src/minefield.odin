@@ -11,24 +11,18 @@ MAX_FLOOD_TILES :: 100
 @(private="file")
 MINE_CHANCE :: 5
 
-Tile_Coords :: struct {
-    x: i32,
-    y: i32,
-}
-
-tilecoords_equal :: proc(self, coords: Tile_Coords) -> bool {
-    return self.x == coords.x && self.y == coords.y
-}
-
 Minefield_Tile :: struct {
     index: i32,
-    coords: Tile_Coords,
     rect: rl.Rectangle,
     color: rl.Color,
     revealed: bool,
     flagged: bool,
     adjacent_mines: i32,
     has_mine: bool,
+}
+
+get_tile_xy :: proc(tile: Minefield_Tile) -> (i32,i32) {
+    return i32(tile.rect.x), i32(tile.rect.y)
 }
 
 get_danger_color :: proc(tile: Minefield_Tile) -> rl.Color {
@@ -45,13 +39,16 @@ get_danger_color :: proc(tile: Minefield_Tile) -> rl.Color {
 }
 
 Minefield :: struct {
-    size: rl.Vector2,
+    width: i32,
+    height: i32,
     tiles: []Minefield_Tile,
     need_clearing: u32,
 }
 
 create_mine_field :: proc(offset: i32, width, height :i32) -> Minefield {
-    num_tiles := (width / TILE_SIZE) * (height / TILE_SIZE)
+    grid_w := width / TILE_SIZE
+    grid_h := height / TILE_SIZE
+    num_tiles := grid_w * grid_h
     rand := random.create(0) 
     colors: [3]int = TILE_COLOR_PALLETE_HEX
 
@@ -76,12 +73,12 @@ create_mine_field :: proc(offset: i32, width, height :i32) -> Minefield {
         tile.color = rl.GetColor(i32(colors[random_color_index]))
         tile.has_mine = false
         tile.index = tile_index
-        tile.coords = Tile_Coords{x=x_pos,y=y_pos}
         tiles[tile_index] = tile
     }
 
     m: Minefield
-    m.size = rl.Vector2{f32(width), f32(height)}
+    m.width = width
+    m.height = height
     m.tiles = tiles
     m.need_clearing = 0
     return m
@@ -111,16 +108,13 @@ populate_mines :: proc(self: ^Minefield) {
 
 @(private="file")
 get_tile_maybe :: proc(self: ^Minefield, x,y: i32) -> Maybe(Minefield_Tile) {
-    coords := Tile_Coords{x=x,y=y}
-    x:= f32(coords.x)
-    y:= f32(coords.y)
-
-    if len(self.tiles) < 0 || x < 0 || y < 0 || x > self.size.x || y > self.size.y {
+    if len(self.tiles) < 0 || x < 0 || y < 0 || x > self.width || y > self.height {
         return nil
     }
 
     for tile in self.tiles {
-        if tilecoords_equal(tile.coords, coords) {
+        other_x, other_y := get_tile_xy(tile)
+        if x == other_x && y == other_y {
             return tile
         }
     }
@@ -129,9 +123,8 @@ get_tile_maybe :: proc(self: ^Minefield, x,y: i32) -> Maybe(Minefield_Tile) {
 }
 
 update_neighbors :: proc(self: ^Minefield) {
-    for tile in &self.tiles {
-        using tile
-        tile.adjacent_mines = 0
+    for tile,i in self.tiles {
+        self.tiles[i].adjacent_mines = 0
         for neighbor_maybe in get_neighbors(self, tile) {
             neighbor, ok := neighbor_maybe.?
             if !ok {
@@ -139,27 +132,24 @@ update_neighbors :: proc(self: ^Minefield) {
             }
 
             if neighbor.has_mine {
-                tile.adjacent_mines += 1
+                self.tiles[i].adjacent_mines += 1
             }
         }
     }
 }
 
-get_neighbors :: proc(self: ^Minefield, tile: Minefield_Tile) -> []Maybe(Minefield_Tile) {
-    x := tile.coords.x
-    y := tile.coords.y
+get_neighbors :: proc(self: ^Minefield, tile: Minefield_Tile, allocator := context.allocator) -> []Maybe(Minefield_Tile) {
+    x, y := get_tile_xy(tile)
 
-    neighbors := []Maybe(Minefield_Tile){
-        get_tile_maybe(self,x - TILE_SIZE, y + TILE_SIZE),
-        get_tile_maybe(self,x, y + TILE_SIZE),
-        get_tile_maybe(self,x + TILE_SIZE, y + TILE_SIZE),
-        get_tile_maybe(self,x + TILE_SIZE, y),
-        get_tile_maybe(self,x + TILE_SIZE, y - TILE_SIZE),
-        get_tile_maybe(self,x, y - TILE_SIZE),
-        get_tile_maybe(self,x - TILE_SIZE, y - TILE_SIZE),
-        get_tile_maybe(self,x - TILE_SIZE, y),
-    }
-
+    neighbors := make([]Maybe(Minefield_Tile), 8, allocator) 
+    neighbors[0] = get_tile_maybe(self,x - TILE_SIZE, y + TILE_SIZE)
+    neighbors[1] = get_tile_maybe(self,x, y + TILE_SIZE)
+    neighbors[2] = get_tile_maybe(self,x + TILE_SIZE, y + TILE_SIZE)
+    neighbors[3] = get_tile_maybe(self,x + TILE_SIZE, y)
+    neighbors[4] = get_tile_maybe(self,x + TILE_SIZE, y - TILE_SIZE)
+    neighbors[5] = get_tile_maybe(self,x, y - TILE_SIZE)
+    neighbors[6] = get_tile_maybe(self,x - TILE_SIZE, y - TILE_SIZE)
+    neighbors[7] = get_tile_maybe(self,x - TILE_SIZE, y)
     return neighbors
 }
 
@@ -174,20 +164,17 @@ reveal_tile :: proc(self: ^Minefield, tile: Minefield_Tile) {
     }
 
     self.tiles[tile.index].revealed = true
-
-    // Uncommenting these lines leads to random tiles
-    // being revealed.
-
-    // if self.need_clearing > 0 {
-    //     self.need_clearing -= 1
-    // }
+    if self.need_clearing > 0 {
+        self.need_clearing -= 1
+    }
 }
 
-flood_reveal_from_tile :: proc (self: ^Minefield, tile: Minefield_Tile) {
+flood_reveal_from_tile :: proc (self: ^Minefield, tile: Minefield_Tile,) {
     x := i32(tile.rect.x)
     y := i32(tile.rect.y)
 
     queue : [dynamic]Minefield_Tile
+    defer delete(queue)
     origin_tile, got_origin_tile := get_tile_maybe(self, x, y).?
     if !got_origin_tile {
         return
@@ -197,12 +184,13 @@ flood_reveal_from_tile :: proc (self: ^Minefield, tile: Minefield_Tile) {
     append(&queue, origin_tile)
 
     flood: for {
+        defer free_all(context.temp_allocator)
         if len(queue) == 0 {
             break
         }
 
         tile := pop(&queue)
-        for n_maybe in get_neighbors(self, tile) {
+        for n_maybe in get_neighbors(self, tile, context.temp_allocator)  {
             n, ok := n_maybe.?
             if !ok {
                 continue
@@ -212,13 +200,13 @@ flood_reveal_from_tile :: proc (self: ^Minefield, tile: Minefield_Tile) {
                 break flood
             }
 
-            if n.has_mine || n.revealed {
-                continue 
+            if n.revealed || n.has_mine {
+                continue
             }
 
             reveal_tile(self, n)
             flood_revealed_tiles += 1
-
+            
             if n.adjacent_mines > 0 {
                 continue
             }
@@ -226,6 +214,4 @@ flood_reveal_from_tile :: proc (self: ^Minefield, tile: Minefield_Tile) {
             append(&queue, n)
         }
     }
-
-    delete(queue)
 }
