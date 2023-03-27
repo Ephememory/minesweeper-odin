@@ -8,6 +8,7 @@ OFF_WHITE :: rl.Color{240, 238, 233, 255}
 TILE_COLOR_PALLETE_HEX :: [?]int{0x69B578, 0xD0DB97, 0x3A7D44}
 BACKGROUND_COLOR_HEX :: 0x181D27
 WINDOW_MARGIN :: TILE_SIZE
+STARTING_FLAGS: u32 : 99
 
 GameState :: enum {
 	PRE_GAME,
@@ -41,9 +42,12 @@ main :: proc() {
 
 	bg_color := rl.GetColor(BACKGROUND_COLOR_HEX)
 
-	player_flags: i32 = 99
+	player_flags: u32 = STARTING_FLAGS
 	mine_field := create_mine_field(WINDOW_MARGIN, width, height)
 	game_state: GameState = GameState.PRE_GAME
+
+	// Flag to reset the current game.
+	wants_reset := false
 
 	defer {
 		rl.CloseWindow()
@@ -56,9 +60,22 @@ main :: proc() {
 		shift_left_click :=
 			rl.IsMouseButtonDown(rl.MouseButton.LEFT) && rl.IsKeyDown(rl.KeyboardKey.LEFT_SHIFT)
 
-		if game_state != .PRE_GAME && rl.IsKeyReleased(rl.KeyboardKey.SPACE) {
-			game_state = .PRE_GAME
+		// TODO: The tile rects actually overlap by 1 tiny pixel.
+
+		// Stops us from digging more than 1 tile per click.
+		// Without this you can dig up a mine on your first ever click too.
+		dug_tile_this_frame := false
+
+		if rl.IsKeyReleased(rl.KeyboardKey.SPACE) {
+			wants_reset = true
+		}
+
+		// Reset
+		if wants_reset && game_state != .PRE_GAME {
+			game_state = GameState.PRE_GAME
 			mine_field = create_mine_field(WINDOW_MARGIN, width, height)
+			player_flags = STARTING_FLAGS
+			wants_reset = false
 		}
 
 		if rl.IsKeyReleased(rl.KeyboardKey.F12) {
@@ -68,8 +85,10 @@ main :: proc() {
 		rl.BeginDrawing()
 		rl.ClearBackground(bg_color)
 		for tile, idx in mine_field.tiles {
+			// Dig a tile
 			if (left_click_rls || shift_left_click) &&
-			   rl.CheckCollisionPointRec(mouse_pos, tile.rect) {
+			   rl.CheckCollisionPointRec(mouse_pos, tile.rect) &&
+			   !dug_tile_this_frame {
 				#partial switch game_state {
 				case .PRE_GAME:
 					{
@@ -77,20 +96,23 @@ main :: proc() {
 						populate_mines(&mine_field)
 						flood_reveal_from_tile(&mine_field, tile)
 						game_state = .PLAYING
+						dug_tile_this_frame = true
 					}
 				case .PLAYING:
 					{
 						if !tile.flagged {
 							reveal_tile(&mine_field, tile)
+							dug_tile_this_frame = true
 							if mine_field.need_clearing <= 0 {
 								game_state = GameState.VICTORY
 							}
 						}
 
-						if tile.has_mine {
+						if tile.has_mine && !tile.flagged {
 							game_state = GameState.GAME_OVER
 						} else if tile.adjacent_mines <= 0 {
 							flood_reveal_from_tile(&mine_field, tile)
+							dug_tile_this_frame = true
 						}
 					}
 				case .GAME_OVER:
@@ -99,17 +121,32 @@ main :: proc() {
 				}
 			}
 
-			if right_click_rls && rl.CheckCollisionPointRec(mouse_pos, tile.rect) {
-				if !tile.revealed {
-					using tile := &mine_field.tiles[idx]
-					tile.flagged = !tile.flagged
+			// Flag a tile or reset the game if the game is over.
+			if right_click_rls {
+				#partial switch game_state {
+				case .PLAYING:
+					{
+						if !tile.revealed && rl.CheckCollisionPointRec(mouse_pos, tile.rect) {
+							flag_result := flag_tile(&mine_field, tile)
 
-					if !tile.flagged {
-						player_flags += 1
-					} else {
-						player_flags -= 1
+							if !flag_result {
+								player_flags += 1
+							} else {
+								player_flags -= 1
+								if mine_field.need_clearing <= 0 {
+									game_state = GameState.VICTORY
+								}
+							}
+						}
+					}
+
+				// Handle reset
+				case .GAME_OVER | .VICTORY:
+					{
+						wants_reset = true
 					}
 				}
+
 			}
 
 			tile_draw_color := tile.revealed ? bg_color : tile.color
@@ -136,15 +173,41 @@ main :: proc() {
 			}
 		}
 
-		if game_state == .PLAYING {
+		title :: "Minesweeper"
+		title_width := rl.MeasureTextEx(font_bold, title, 24, 0).x / 2
+		rl.DrawTextEx(
+			font_bold,
+			title,
+			rl.Vector2{f32(rl.GetScreenWidth() / 2) - title_width, 1},
+			24,
+			0,
+			OFF_WHITE,
+		)
+
+		if game_state != GameState.PRE_GAME {
+			placed_flags := STARTING_FLAGS - player_flags
 			rl.DrawTextEx(
 				font_bold,
-				rl.TextFormat("Need to clear: %d", mine_field.need_clearing),
+				rl.TextFormat(
+					"Need to clear: %d",
+					mine_field.need_clearing - (STARTING_FLAGS - player_flags),
+				),
 				rl.Vector2{1, 1},
 				24,
 				0,
 				OFF_WHITE,
 			)
+
+			flag_text := rl.TextFormat("Flags: %d", player_flags)
+			flag_text_width := rl.MeasureTextEx(font_bold, flag_text, 24, 0).x + 2
+			flag_text_pos := rl.Vector2{f32(rl.GetScreenWidth()) - flag_text_width, 1}
+			flag_label_icon_pos := rl.Vector2{flag_text_pos.x - 35, flag_text_pos.y}
+			rl.DrawTextureV(flag_sprite, flag_label_icon_pos, OFF_WHITE)
+			rl.DrawTextEx(font_bold, flag_text, flag_text_pos, 24, 0, OFF_WHITE)
+		}
+
+		if game_state == GameState.VICTORY {
+			fmt.print("You win! :)")
 		}
 
 		rl.EndDrawing()

@@ -167,14 +167,28 @@ reveal_tile :: proc(self: ^Minefield, tile: Minefield_Tile) {
 		return
 	}
 
-	if tile.revealed || tile.has_mine {
+	if tile.revealed || tile.has_mine || tile.flagged {
 		return
 	}
 
-	self.tiles[tile.index].revealed = true
+	self.tiles[index].revealed = true
 	if self.need_clearing > 0 {
 		self.need_clearing -= 1
 	}
+}
+
+flag_tile :: proc(self: ^Minefield, tile: Minefield_Tile) -> bool {
+	index := int(tile.index)
+	if index < 0 || index > len(self.tiles) {
+		return false
+	}
+
+	if tile.revealed {
+		return false
+	}
+
+	self.tiles[index].flagged = !tile.flagged
+	return self.tiles[index].flagged
 }
 
 flood_reveal_from_tile :: proc(self: ^Minefield, tile: Minefield_Tile) {
