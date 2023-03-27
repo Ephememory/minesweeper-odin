@@ -13,8 +13,7 @@ STARTING_FLAGS: u32 : 99
 GameState :: enum {
 	PRE_GAME,
 	PLAYING,
-	GAME_OVER,
-	VICTORY,
+	GAME_OVER, //Can mean either failure or victory.
 }
 
 main :: proc() {
@@ -103,9 +102,6 @@ main :: proc() {
 						if !tile.flagged {
 							reveal_tile(&mine_field, tile)
 							dug_tile_this_frame = true
-							if mine_field.need_clearing <= 0 {
-								game_state = GameState.VICTORY
-							}
 						}
 
 						if tile.has_mine && !tile.flagged {
@@ -133,20 +129,21 @@ main :: proc() {
 								player_flags += 1
 							} else {
 								player_flags -= 1
-								if mine_field.need_clearing <= 0 {
-									game_state = GameState.VICTORY
-								}
 							}
 						}
 					}
 
 				// Handle reset
-				case .GAME_OVER | .VICTORY:
+				case .GAME_OVER:
 					{
 						wants_reset = true
 					}
 				}
 
+			}
+
+			if game_state == GameState.PLAYING && mine_field.need_clearing <= 0 {
+				game_state = GameState.GAME_OVER
 			}
 
 			tile_draw_color := tile.revealed ? bg_color : tile.color
@@ -184,30 +181,8 @@ main :: proc() {
 			OFF_WHITE,
 		)
 
-		if game_state != GameState.PRE_GAME {
-			placed_flags := STARTING_FLAGS - player_flags
-			rl.DrawTextEx(
-				font_bold,
-				rl.TextFormat(
-					"Need to clear: %d",
-					mine_field.need_clearing - (STARTING_FLAGS - player_flags),
-				),
-				rl.Vector2{1, 1},
-				24,
-				0,
-				OFF_WHITE,
-			)
+		if game_state == GameState.GAME_OVER {
 
-			flag_text := rl.TextFormat("Flags: %d", player_flags)
-			flag_text_width := rl.MeasureTextEx(font_bold, flag_text, 24, 0).x + 2
-			flag_text_pos := rl.Vector2{f32(rl.GetScreenWidth()) - flag_text_width, 1}
-			flag_label_icon_pos := rl.Vector2{flag_text_pos.x - 35, flag_text_pos.y}
-			rl.DrawTextureV(flag_sprite, flag_label_icon_pos, OFF_WHITE)
-			rl.DrawTextEx(font_bold, flag_text, flag_text_pos, 24, 0, OFF_WHITE)
-		}
-
-		if game_state == GameState.VICTORY {
-			fmt.print("You win! :)")
 		}
 
 		rl.EndDrawing()
