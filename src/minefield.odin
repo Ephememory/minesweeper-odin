@@ -18,6 +18,7 @@ Minefield_Tile :: struct {
 	flagged:        bool,
 	adjacent_mines: i32,
 	has_mine:       bool,
+	being_pressed:  bool,
 }
 
 get_tile_xy :: proc(tile: Minefield_Tile) -> (i32, i32) {
@@ -73,7 +74,8 @@ create_mine_field :: proc(offset: i32, width, height: i32) -> Minefield {
 			height = TILE_SIZE,
 		}
 		random_color_index := random.int31_max(len(TILE_COLOR_PALLETE_HEX))
-		tile.color = rl.GetColor(i32(colors[random_color_index]))
+		tile.color = rl.GetColor(u32(colors[random_color_index]))
+		tile.being_pressed = false
 		tile.has_mine = false
 		tile.index = tile_index
 		tiles[tile_index] = tile
@@ -237,3 +239,7 @@ flood_reveal_from_tile :: proc(self: ^Minefield, tile: Minefield_Tile) {
 		}
 	}
 }
+
+// hover_tile :: proc(self: ^Minefield, tile: Minefield_Tile) {
+// 	tile.color = rl.WHITE
+// }

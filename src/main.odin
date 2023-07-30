@@ -84,6 +84,13 @@ main :: proc() {
 		rl.BeginDrawing()
 		rl.ClearBackground(bg_color)
 		for tile, idx in mine_field.tiles {
+			mine_field.tiles[idx].being_pressed = false
+			if (!tile.revealed && rl.IsMouseButtonDown(rl.MouseButton.LEFT)) {
+				if (rl.CheckCollisionPointRec(mouse_pos, tile.rect)) {
+					mine_field.tiles[idx].being_pressed = true
+				}
+			}
+
 			// Dig a tile
 			if (left_click_rls || shift_left_click) &&
 			   rl.CheckCollisionPointRec(mouse_pos, tile.rect) &&
@@ -147,7 +154,12 @@ main :: proc() {
 			}
 
 			tile_draw_color := tile.revealed ? bg_color : tile.color
+			if (tile.being_pressed) {
+				tile_draw_color = rl.WHITE
+			}
+
 			rl.DrawRectangleRounded(shrink_rect(tile.rect, 2), 0.3, 4, tile_draw_color)
+
 
 			if !tile.has_mine && tile.revealed && tile.adjacent_mines > 0 {
 				rl.DrawTextEx(
